@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Water Tank Cleaning Dashboard</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 2rem; background: #f9f9f9; }
+    h1, h3, h4 { margin-top: 0; }
+    .hidden { display: none; }
+    input, button {
+      width: 100%;
+      padding: 8px;
+      margin: 5px 0;
+      font-size: 16px;
+    }
+    button {
+      background-color: #007bff;
+      border: none;
+      color: white;
+      cursor: pointer;
+    }
+    button:hover {
+      background-color: #0056b3;
+    }
+    .booking {
+      background: #fff;
+      border: 1px solid #ccc;
+      padding: 10px;
+      margin-top: 10px;
+      border-radius: 6px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    .actions {
+      margin: 10px 0;
+    }
+    pre { white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <h1>Water Tank Cleaning Dashboard</h1>
+
+  <!-- Login Panel -->
+  <div id="login">
+    <h3>Login</h3>
+    <input id="email" placeholder="Email" />
+    <input id="password" type="password" placeholder="Password" />
+    <button onclick="login()">Login</button>
+    <pre id="login-error" style="color: red;"></pre>
+  </div>
+
+  <!-- Main Dashboard -->
+  <div id="dashboard" class="hidden">
+    <h3>Welcome, <span id="role"></span></h3>
+
+    <div class="actions">
+      <button onclick="fetchBookings()">🔄 Refresh Bookings</button>
+      <button onclick="logout()">🚪 Logout</button>
+    </div>
+
+    <!-- Customer Booking Form -->
+    <div id="customer-booking" class="hidden">
+      <h4>Create Booking</h4>
+      <input id="bk-customer" placeholder="Customer Name" />
+      <input id="bk-cleaner" placeholder="Cleaner Name" />
+      <input id="bk-time" placeholder="Time (e.g., 10am-12pm)" />
+      <button onclick="createBooking()">➕ Book Now</button>
+    </div>
+
+    <!-- Search Filter -->
+    <div>
+      <h4>Search/Filter</h4>
+      <input id="search-input" placeholder="Search customer or cleaner..." oninput="applySearch()" />
+    </div>
+
+    <!-- Bookings List -->
+    <h4>Bookings</h4>
+    <div id="bookings"></div>
+  </div>
+
+  <script>
+    let token = '';
+    let userRole = '';
+    let allBookings = [];
+
+    async function login() {
+      const email = document.getElementById('email').value.trim();
+      const password = document.getElementById('password').value.trim();
+      document.getElementById('login-error').innerText = '';
+
+      const query = `
+        mutation {
+          login(email: "${email}", password: "${password}")
+        }
+      `;
+
+      try {
+        const res = await fetch('http://localhost:4000/graphql', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query }),
+        });
+
+        const result = await res.json();
+
+        if (result.data?.login) {
+          token = result.data.login;
+
+          // Set role based on email pattern
+          if (email.includes('admin')) userRole = 'admin';
+          else if (email.includes('cleaner')) userRole = 'cleaner';
+          else userRole = 'customer';
+
+          document.getElementById('login').classList.add('hidden');
+          document.getElementById('dashboard').classList.remove('hidden');
+          document.getElementById('role').innerText = userRole;
+
+          if (userRole === 'customer') {
+            document.getElementById('customer-booking').classList.remove('hidden');
+          }
+
+          fetchBookings();
+        } else {
+          document.getElementById('login-error').innerText = 'Invalid credentials';
+        }
+      } catch (err) {
+        document.getElementById('login-error').innerText = 'Login failed: ' + err.message;
+      }
+    }
+
+    async function fetchBookings() {
+      const query = `
+        query {
+          bookings {
+            id
+            customer
+            cleaner
+            time
+            status
+          }
+        }
+      `;
+
+      try {
+        const res = await fetch('http://localhost:4000/graphql', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + token,
+          },
+          body: JSON.stringify({ query }),
+        });
+
+        const result = await res.json();
+        allBookings = result.data?.bookings || [];
+        displayBookings(allBookings);
+      } catch (err) {
+        document.getElementById('bookings').innerText = 'Error fetching bookings: ' + err.message;
+      }
+    }
+
+    function displayBookings(bookings) {
+      const container = document.getElementById('bookings');
+      container.innerHTML = '';
+
+      if (bookings.length === 0) {
+        container.innerText = 'No bookings found.';
+        return;
+      }
+
+      bookings.forEach(b => {
+        const div = document.createElement('div');
+        div.className = 'booking';
+        div.innerHTML = `
+          <strong>#${b.id}</strong><br>
+          Customer: ${b.customer}<br>
+          Cleaner: ${b.cleaner}<br>
+          Time: ${b.time}<br>
+          Status: ${b.status}
+        `;
+        container.appendChild(div);
+      });
+    }
+
+    function applySearch() {
+      const term = document.getElementById('search-input').value.toLowerCase();
+      const filtered = allBookings.filter(b =>
+        b.customer.toLowerCase().includes(term) ||
+        b.cleaner.toLowerCase().includes(term)
+      );
+      displayBookings(filtered);
+    }
+
+    async function createBooking() {
+      const customer = document.getElementById('bk-customer').value.trim();
+      const cleaner = document.getElementById('bk-cleaner').value.trim();
+      const time = document.getElementById('bk-time').value.trim();
+
+      const query = `
+        mutation {
+          createBooking(customer: "${customer}", cleaner: "${cleaner}", time: "${time}") {
+            id
+            status
+          }
+        }
+      `;
+
+      try {
+        const res = await fetch('http://localhost:4000/graphql', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + token,
+          },
+          body: JSON.stringify({ query }),
+        });
+
+        const result = await res.json();
+        if (result.data?.createBooking) {
+          fetchBookings(); // Refresh after creation
+        }
+      } catch (err) {
+        alert('Booking failed: ' + err.message);
+      }
+    }
+
+    function logout() {
+      token = '';
+      userRole = '';
+      document.getElementById('login').classList.remove('hidden');
+      document.getElementById('dashboard').classList.add('hidden');
+      document.getElementById('customer-booking').classList.add('hidden');
+      document.getElementById('bookings').innerHTML = '';
+    }
+  </script>
+</body>
+</html>
